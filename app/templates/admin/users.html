@@ -1,0 +1,296 @@
+{% extends 'base.html' %}
+
+{% block title %}User Management & Approvals &bull; LeaseFlow{% endblock %}
+
+{% block content %}
+<div style="max-width: 1200px; margin: 0 auto;">
+
+  <!-- Header Row -->
+  <div class="page-title-row">
+    <div>
+      <div style="display: flex; align-items: center; gap: 0.65rem;">
+        <span style="background: #e0e7ff; color: #4338ca; padding: 0.25rem 0.65rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.05em;">
+          ADMIN PANEL
+        </span>
+        <h1 style="margin: 0;">User Management & Approvals</h1>
+      </div>
+      <p style="margin-top: 0.35rem; color: var(--text-muted);">
+        Control user registrations, approve new tenants, and manage access roles. Each user can only view their own leases.
+      </p>
+    </div>
+
+    <div>
+      <span class="badge badge-info" style="padding: 0.6rem 1rem; font-size: 0.85rem; font-weight: 700;">
+        <i class="bi bi-shield-check"></i> Master Administrator: {{ current_user.username }}
+      </span>
+    </div>
+  </div>
+
+  <!-- KPI Stat Cards -->
+  <div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-bottom: 2rem;">
+    <!-- Pending Approvals -->
+    <div class="card kpi-card" style="border-top: 4px solid #f59e0b; background: {% if pending_count > 0 %}#fffbeb{% else %}#ffffff{% endif %};">
+      <div class="card-body">
+        <div class="kpi-header">
+          <span class="kpi-title" style="color: #b45309;">Pending Approvals</span>
+          <div class="kpi-icon-wrap" style="background: #fef3c7; color: #d97706;">
+            <i class="bi bi-person-fill-exclamation"></i>
+          </div>
+        </div>
+        <div class="kpi-amount" style="color: #b45309; font-size: 1.85rem;">
+          {{ pending_count }}
+        </div>
+        <div class="kpi-subtext" style="color: #92400e;">
+          {% if pending_count > 0 %}Awaiting your approval to log in{% else %}All signups processed{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Approved Accounts -->
+    <div class="card kpi-card" style="border-top: 4px solid var(--receivable-green);">
+      <div class="card-body">
+        <div class="kpi-header">
+          <span class="kpi-title">Active Approved Users</span>
+          <div class="kpi-icon-wrap" style="background: var(--receivable-bg); color: var(--receivable-green);">
+            <i class="bi bi-person-check-fill"></i>
+          </div>
+        </div>
+        <div class="kpi-amount" style="font-size: 1.85rem;">
+          {{ approved_count }}
+        </div>
+        <div class="kpi-subtext">Active accounts with isolated portfolios</div>
+      </div>
+    </div>
+
+    <!-- Admins -->
+    <div class="card kpi-card" style="border-top: 4px solid #6366f1;">
+      <div class="card-body">
+        <div class="kpi-header">
+          <span class="kpi-title">Administrators</span>
+          <div class="kpi-icon-wrap" style="background: #eef2ff; color: #6366f1;">
+            <i class="bi bi-shield-lock-fill"></i>
+          </div>
+        </div>
+        <div class="kpi-amount" style="font-size: 1.85rem;">
+          {{ admin_count }}
+        </div>
+        <div class="kpi-subtext">System administrative privileges</div>
+      </div>
+    </div>
+
+    <!-- Total Registered -->
+    <div class="card kpi-card" style="border-top: 4px solid #64748b;">
+      <div class="card-body">
+        <div class="kpi-header">
+          <span class="kpi-title">Total Registered</span>
+          <div class="kpi-icon-wrap" style="background: #f1f5f9; color: #64748b;">
+            <i class="bi bi-people-fill"></i>
+          </div>
+        </div>
+        <div class="kpi-amount" style="font-size: 1.85rem;">
+          {{ total_count }}
+        </div>
+        <div class="kpi-subtext">Across all statuses</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters and Search Toolbar -->
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-body" style="padding: 1rem 1.5rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem;">
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <a href="{{ url_for('main.admin_users', tab='all', search=search) }}" 
+           class="btn btn-sm {% if current_tab == 'all' %}btn-primary{% else %}btn-secondary{% endif %}">
+          All Users ({{ total_count }})
+        </a>
+        <a href="{{ url_for('main.admin_users', tab='pending', search=search) }}" 
+           class="btn btn-sm {% if current_tab == 'pending' %}btn-primary{% else %}btn-secondary{% endif %}">
+          <i class="bi bi-clock-history"></i> Pending Review ({{ pending_count }})
+        </a>
+        <a href="{{ url_for('main.admin_users', tab='approved', search=search) }}" 
+           class="btn btn-sm {% if current_tab == 'approved' %}btn-primary{% else %}btn-secondary{% endif %}">
+          <i class="bi bi-check-circle"></i> Approved ({{ approved_count }})
+        </a>
+      </div>
+
+      <form method="GET" action="{{ url_for('main.admin_users') }}" style="display: flex; gap: 0.5rem; align-items: center;">
+        <input type="hidden" name="tab" value="{{ current_tab }}">
+        <div style="position: relative;">
+          <input type="text" name="search" value="{{ search or '' }}" placeholder="Search username, name, email..." class="form-control form-control-sm" style="padding-left: 2rem; width: 260px;">
+          <i class="bi bi-search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-light); font-size: 0.8rem;"></i>
+        </div>
+        <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+        {% if search %}
+          <a href="{{ url_for('main.admin_users', tab=current_tab) }}" class="btn btn-secondary btn-sm" title="Clear search">&times;</a>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  <!-- Users Directory Table -->
+  <div class="card" style="border-radius: var(--radius-xl); overflow: hidden;">
+    {% if users %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 250px;">User Profile</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Registered</th>
+              <th>Last Active</th>
+              <th>Leases Owned</th>
+              <th style="text-align: right; width: 280px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+              <tr style="{% if u.status == 'pending' %}background: #fffdf7;{% endif %}">
+                <!-- User Profile -->
+                <td>
+                  <div style="display: flex; align-items: center; gap: 0.85rem;">
+                    <div style="width: 40px; height: 40px; border-radius: 10px; background: {% if u.role == 'admin' %}linear-gradient(135deg, #4f46e5 0%, #1e1b4b 100%){% else %}linear-gradient(135deg, #0284c7 0%, #0369a1 100%){% endif %}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-family: var(--font-heading); font-size: 0.95rem;">
+                      {{ u.username[:2].upper() }}
+                    </div>
+                    <div>
+                      <div style="font-weight: 700; color: var(--text-main);">
+                        {{ u.full_name or u.username }}
+                        {% if u.id == current_user.id %}
+                          <span style="font-size: 0.7rem; background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-left: 4px;">YOU</span>
+                        {% endif %}
+                      </div>
+                      <div style="font-size: 0.8rem; color: var(--text-muted); font-family: monospace;">
+                        @{{ u.username }}
+                      </div>
+                      {% if u.email %}
+                        <div style="font-size: 0.75rem; color: var(--text-light);">{{ u.email }}</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </td>
+
+                <!-- Role -->
+                <td>
+                  {% if u.role == 'admin' %}
+                    <span class="badge" style="background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; font-weight: 700;">
+                      <i class="bi bi-shield-lock-fill"></i> Admin
+                    </span>
+                  {% else %}
+                    <span class="badge" style="background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; font-weight: 600;">
+                      <i class="bi bi-person"></i> Standard User
+                    </span>
+                  {% endif %}
+                </td>
+
+                <!-- Status -->
+                <td>
+                  {% if u.status == 'approved' %}
+                    <span class="badge badge-success" style="font-weight: 700;">
+                      <i class="bi bi-check-circle-fill"></i> Approved
+                    </span>
+                  {% elif u.status == 'pending' %}
+                    <span class="badge badge-warning" style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-weight: 800; animation: pulse 2s infinite;">
+                      <i class="bi bi-hourglass-split"></i> Pending Approval
+                    </span>
+                  {% elif u.status == 'rejected' %}
+                    <span class="badge badge-danger" style="font-weight: 700;">
+                      <i class="bi bi-x-circle-fill"></i> Declined
+                    </span>
+                  {% endif %}
+                </td>
+
+                <!-- Registered -->
+                <td style="font-size: 0.85rem; color: var(--text-muted);">
+                  {{ u.created_at|date_format('%b %d, %Y') }}
+                </td>
+
+                <!-- Last Active -->
+                <td style="font-size: 0.85rem; color: var(--text-muted);">
+                  {% if u.last_login %}
+                    {{ u.last_login|date_format('%b %d, %Y %I:%M %p') }}
+                  {% else %}
+                    <span style="color: var(--text-light); font-style: italic;">Never</span>
+                  {% endif %}
+                </td>
+
+                <!-- Leases Count -->
+                <td>
+                  <span class="badge badge-secondary" style="font-weight: 700;">
+                    {{ u.leases|length }} leases
+                  </span>
+                </td>
+
+                <!-- Actions -->
+                <td style="text-align: right;">
+                  <div style="display: inline-flex; gap: 0.35rem; align-items: center; justify-content: flex-end;">
+                    {% if u.id == current_user.id %}
+                      <span style="font-size: 0.8rem; color: var(--text-light); font-style: italic; padding-right: 0.5rem;">
+                        Master Admin (Protected)
+                      </span>
+                    {% else %}
+                      {% if u.status == 'pending' %}
+                        <!-- Approve Button -->
+                        <form method="POST" action="{{ url_for('main.admin_approve_user', user_id=u.id) }}" style="display: inline;">
+                          <button type="submit" class="btn btn-sm btn-success" title="Approve this user so they can login">
+                            <i class="bi bi-check-lg"></i> Approve
+                          </button>
+                        </form>
+                        <!-- Reject Button -->
+                        <form method="POST" action="{{ url_for('main.admin_reject_user', user_id=u.id) }}" style="display: inline;" onsubmit="return confirm('Decline access for user {{ u.username }}?');">
+                          <button type="submit" class="btn btn-sm btn-secondary" title="Reject access request">
+                            <i class="bi bi-x-lg"></i> Reject
+                          </button>
+                        </form>
+                      {% elif u.status == 'approved' %}
+                        <!-- Toggle Admin Role -->
+                        <form method="POST" action="{{ url_for('main.admin_toggle_role', user_id=u.id) }}" style="display: inline;">
+                          <button type="submit" class="btn btn-sm btn-secondary" title="Switch between User and Admin role">
+                            {% if u.role == 'admin' %}
+                              <i class="bi bi-shield-minus"></i> Demote
+                            {% else %}
+                              <i class="bi bi-shield-plus"></i> Make Admin
+                            {% endif %}
+                          </button>
+                        </form>
+                        <!-- Reject / Suspend -->
+                        <form method="POST" action="{{ url_for('main.admin_reject_user', user_id=u.id) }}" style="display: inline;" onsubmit="return confirm('Suspend user {{ u.username }} from logging in?');">
+                          <button type="submit" class="btn btn-sm btn-secondary" title="Suspend access" style="color: var(--payable-red);">
+                            <i class="bi bi-pause-circle"></i> Suspend
+                          </button>
+                        </form>
+                      {% elif u.status == 'rejected' %}
+                        <!-- Re-approve -->
+                        <form method="POST" action="{{ url_for('main.admin_approve_user', user_id=u.id) }}" style="display: inline;">
+                          <button type="submit" class="btn btn-sm btn-success">
+                            <i class="bi bi-check-lg"></i> Re-Approve
+                          </button>
+                        </form>
+                      {% endif %}
+
+                      <!-- Delete User -->
+                      <form method="POST" action="{{ url_for('main.admin_delete_user', user_id=u.id) }}" style="display: inline;" onsubmit="return confirm('Permanently delete user {{ u.username }} and all their leases? This cannot be undone.');">
+                        <button type="submit" class="btn btn-sm btn-secondary" title="Permanently delete user" style="color: var(--payable-red-dark);">
+                          <i class="bi bi-trash"></i>
+                        </button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="padding: 3.5rem; text-align: center;">
+        <i class="bi bi-people" style="font-size: 2.5rem; color: var(--text-light); margin-bottom: 0.75rem; display: block;"></i>
+        <h3 style="color: var(--text-main); margin-bottom: 0.5rem;">No Users Found</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          No user accounts match the current filter or search criteria.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

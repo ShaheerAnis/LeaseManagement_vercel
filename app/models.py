@@ -1,14 +1,54 @@
 from datetime import datetime, timezone, date
+from werkzeug.security import generate_password_hash, check_password_hash
 from app import db
 
 def utc_now():
     return datetime.now(timezone.utc)
 
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    full_name = db.Column(db.String(120), nullable=True)
+    email = db.Column(db.String(120), nullable=True)
+    password_hash = db.Column(db.String(256), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='user') # 'admin' or 'user'
+    status = db.Column(db.String(20), nullable=False, default='pending') # 'approved', 'pending', 'rejected'
+    failed_logins = db.Column(db.Integer, default=0)
+    locked_until = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    last_login = db.Column(db.DateTime, nullable=True)
+    
+    # Relationships
+    leases = db.relationship('Lease', backref='owner', lazy=True, cascade='all, delete-orphan')
+    counterparties = db.relationship('Counterparty', backref='owner', lazy=True, cascade='all, delete-orphan')
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    @property
+    def is_admin(self):
+        return self.role == 'admin'
+
+    @property
+    def is_approved(self):
+        return self.status == 'approved'
+
+    def __repr__(self):
+        return f"<User {self.id}: {self.username} ({self.role}, {self.status})>"
+
+
 class Counterparty(db.Model):
     __tablename__ = 'counterparties'
     
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False, unique=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
+    name = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(120), nullable=True)
     email = db.Column(db.String(120), nullable=True)
     notes = db.Column(db.Text, nullable=True)
@@ -19,7 +59,7 @@ class Counterparty(db.Model):
     leases = db.relationship('Lease', backref='counterparty', lazy=True, order_by='Lease.created_at.desc()')
 
     def __repr__(self):
-        return f"<Counterparty {self.id}: {self.name}>"
+        return f"<Counterparty {self.id}: {self.name} (User {self.user_id})>"
 
     @property
     def total_payable_balance(self):
@@ -45,6 +85,7 @@ class Lease(db.Model):
     __tablename__ = 'leases'
     
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
     title = db.Column(db.String(120), nullable=False)
     lease_type = db.Column(db.String(20), nullable=False, default='payable') # 'payable' (I owe / bought) or 'receivable' (I gave / receive)
     counterparty_id = db.Column(db.Integer, db.ForeignKey('counterparties.id', ondelete='SET NULL'), nullable=True)
@@ -64,7 +105,7 @@ class Lease(db.Model):
     documents = db.relationship('Document', backref='lease', cascade='all, delete-orphan', lazy=True, order_by='Document.uploaded_at.desc()')
 
     def __repr__(self):
-        return f"<Lease {self.id}: {self.title} ({self.lease_type})>"
+        return f"<Lease {self.id}: {self.title} ({self.lease_type}, User {self.user_id})>"
 
     @property
     def total_paid(self):

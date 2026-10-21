@@ -14,6 +14,11 @@ class CounterpartyTestCase(unittest.TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         db.create_all()
+        
+        from app.models import User
+        self.admin = User.query.filter_by(username='shaheer.anis').first()
+        with self.client.session_transaction() as sess:
+            sess['user_id'] = self.admin.id
 
     def tearDown(self):
         db.session.remove()
@@ -80,7 +85,7 @@ class CounterpartyTestCase(unittest.TestCase):
 
     def test_party_profile_edit(self):
         # Create party
-        party = Counterparty(name='Asfand Barki', phone='0300-1234567')
+        party = Counterparty(name='Asfand Barki', phone='0300-1234567', user_id=self.admin.id)
         db.session.add(party)
         db.session.commit()
 

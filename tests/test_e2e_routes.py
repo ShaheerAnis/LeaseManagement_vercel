@@ -19,6 +19,11 @@ class LeaseRoutesTestCase(unittest.TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         db.create_all()
+        
+        from app.models import User
+        self.admin = User.query.filter_by(username='shaheer.anis').first()
+        with self.client.session_transaction() as sess:
+            sess['user_id'] = self.admin.id
 
     def tearDown(self):
         db.session.remove()

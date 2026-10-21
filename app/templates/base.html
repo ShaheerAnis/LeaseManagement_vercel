@@ -36,6 +36,18 @@
           <i class="bi bi-people"></i>
           <span>Persons / Parties</span>
         </a>
+
+        {% if current_user and current_user.is_admin %}
+          <a href="{{ url_for('main.admin_users') }}" class="nav-link-item {% if request.endpoint == 'main.admin_users' %}active{% endif %}" style="display: flex; align-items: center;">
+            <i class="bi bi-shield-lock"></i>
+            <span>User Approvals</span>
+            {% if pending_approvals_count > 0 %}
+              <span style="margin-left: auto; background: #f59e0b; color: #fff; font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;">
+                {{ pending_approvals_count }}
+              </span>
+            {% endif %}
+          </a>
+        {% endif %}
       </nav>
 
       <!-- Bottom Add Button in Sidebar -->
@@ -56,13 +68,27 @@
           <input type="text" name="search" placeholder="Search leases...">
         </form>
 
-        <div class="topbar-actions">
-          <button type="button" class="topbar-icon-btn" title="Notifications">
-            <i class="bi bi-bell"></i>
-          </button>
-          <div class="topbar-avatar" title="User Profile">
-            <i class="bi bi-person"></i>
-          </div>
+        <div class="topbar-actions" style="display: flex; align-items: center; gap: 0.75rem;">
+          {% if current_user %}
+            <div style="display: flex; align-items: center; gap: 0.65rem; background: var(--bg-subtle); padding: 0.35rem 0.75rem; border-radius: var(--radius-full); border: 1px solid var(--border-color);">
+              <div style="width: 32px; height: 32px; border-radius: 50%; background: {% if current_user.is_admin %}linear-gradient(135deg, #4f46e5 0%, #1e1b4b 100%){% else %}linear-gradient(135deg, #0284c7 0%, #0369a1 100%){% endif %}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; font-family: var(--font-heading);">
+                {{ current_user.username[:2].upper() }}
+              </div>
+              <div style="line-height: 1.2;">
+                <div style="font-size: 0.825rem; font-weight: 700; color: var(--text-main);">
+                  {{ current_user.full_name or current_user.username }}
+                </div>
+                <div style="font-size: 0.7rem; color: {% if current_user.is_admin %}#4f46e5; font-weight: 700;{% else %}var(--text-light);{% endif %}">
+                  {% if current_user.is_admin %}&bull; Admin{% else %}&bull; User{% endif %}
+                </div>
+              </div>
+            </div>
+
+            <a href="{{ url_for('main.logout') }}" class="btn btn-sm btn-secondary" style="display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0.75rem;" title="Sign out of LeaseFlow">
+              <i class="bi bi-box-arrow-right"></i>
+              <span>Logout</span>
+            </a>
+          {% endif %}
         </div>
       </header>
 

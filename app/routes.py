@@ -1,15 +1,26 @@
 import os
+import re
 import uuid
-from datetime import datetime, date
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, send_from_directory, jsonify, abort
+from datetime import datetime, date, timezone, timedelta
+from urllib.parse import urlparse
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, send_from_directory, jsonify, abort, session, g
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Lease, Payment, Document, Counterparty
+from app.models import Lease, Payment, Document, Counterparty, User
+from app.auth import login_required, admin_required
 from app.calculations import calculate_lease_metrics
 
 main_bp = Blueprint('main', __name__)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'pdf', 'doc', 'docx'}
+
+def is_safe_redirect_url(target):
+    """Ensure redirect URL is local to prevent open redirect vulnerabilities."""
+    if not target:
+        return False
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(target)
+    return test_url.scheme in ('http', 'https') and ref_url.netloc == test_url.netloc or not test_url.netloc
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -55,13 +66,20 @@ def save_multiple_files(file_list, base_description="", lease_id=None, payment_i
                 saved_docs.append(doc)
     return saved_docs
 
-def get_or_create_counterparty(name, contact_info=""):
+def get_or_create_counterparty(name, contact_info="", user_id=None):
     if not name or not name.strip():
         return None
     cleaned_name = name.strip()
-    cp = Counterparty.query.filter(Counterparty.name.ilike(cleaned_name)).first()
+    query = Counterparty.query.filter(Counterparty.name.ilike(cleaned_name))
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    cp = query.first()
     if not cp:
-        cp = Counterparty(name=cleaned_name, phone=contact_info.strip() if contact_info else None)
+        cp = Counterparty(
+            user_id=user_id,
+            name=cleaned_name,
+            phone=contact_info.strip() if contact_info else None
+        )
         db.session.add(cp)
         db.session.flush()
     else:
@@ -71,9 +89,253 @@ def get_or_create_counterparty(name, contact_info=""):
     return cp
 
 
+# =========================================================
+# AUTHENTICATION ROUTES (LOGIN, SIGNUP, LOGOUT)
+# =========================================================
+
+@main_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    if g.get('current_user'):
+        return redirect(url_for('main.dashboard'))
+
+    next_url = request.args.get('next', '')
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        remember = bool(request.form.get('remember'))
+
+        if not username or not password:
+            flash('Please enter both username and password.', 'danger')
+            return render_template('auth/login.html', next=next_url)
+
+        user = User.query.filter(User.username.ilike(username)).first()
+
+        # Brute-force lockout check
+        if user and user.locked_until:
+            now = datetime.now(timezone.utc)
+            # Make sure locked_until is timezone-aware
+            locked_dt = user.locked_until if user.locked_until.tzinfo else user.locked_until.replace(tzinfo=timezone.utc)
+            if locked_dt > now:
+                mins_left = max(1, int((locked_dt - now).total_seconds() // 60))
+                flash(f'Account temporarily locked due to too many failed attempts. Try again in {mins_left} minute(s).', 'danger')
+                return render_template('auth/login.html', next=next_url)
+
+        # Validate password
+        if not user or not user.check_password(password):
+            if user:
+                user.failed_logins = (user.failed_logins or 0) + 1
+                if user.failed_logins >= 5:
+                    user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+                db.session.commit()
+            flash('Invalid username or password. Please verify your credentials.', 'danger')
+            return render_template('auth/login.html', next=next_url)
+
+        # Reset failed login count on valid credentials
+        user.failed_logins = 0
+        user.locked_until = None
+
+        # Check approval status
+        if user.status == 'pending':
+            db.session.commit()
+            flash('Your account is awaiting approval by the administrator (Shaheer Anis). You cannot log in until approved.', 'warning')
+            return render_template('auth/login.html', next=next_url)
+
+        if user.status == 'rejected':
+            db.session.commit()
+            flash('Your account access request has been declined. Please contact the administrator.', 'danger')
+            return render_template('auth/login.html', next=next_url)
+
+        # User is approved -> Establish secure session
+        session.clear() # Prevent session fixation
+        session['user_id'] = user.id
+        session.permanent = remember
+        user.last_login = datetime.now(timezone.utc)
+        db.session.commit()
+
+        flash(f'Welcome back, {user.full_name or user.username}!', 'success')
+
+        if next_url and is_safe_redirect_url(next_url):
+            return redirect(next_url)
+        return redirect(url_for('main.dashboard'))
+
+    return render_template('auth/login.html', next=next_url)
+
+
+@main_bp.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if g.get('current_user'):
+        return redirect(url_for('main.dashboard'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip().lower()
+        full_name = request.form.get('full_name', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        # Validations
+        if not username or not password or not confirm_password:
+            flash('Username, password, and confirmation are required.', 'danger')
+            return render_template('auth/signup.html', username=username, full_name=full_name, email=email)
+
+        if not re.match(r'^[a-z0-9._]{3,30}$', username):
+            flash('Username must be 3-30 characters long and contain only letters, numbers, dots, or underscores.', 'danger')
+            return render_template('auth/signup.html', username=username, full_name=full_name, email=email)
+
+        if len(password) < 8:
+            flash('Password must be at least 8 characters long for security.', 'danger')
+            return render_template('auth/signup.html', username=username, full_name=full_name, email=email)
+
+        if password != confirm_password:
+            flash('Passwords do not match. Please re-enter them.', 'danger')
+            return render_template('auth/signup.html', username=username, full_name=full_name, email=email)
+
+        existing_user = User.query.filter(User.username.ilike(username)).first()
+        if existing_user:
+            flash(f'Username "{username}" is already taken. Please choose another.', 'danger')
+            return render_template('auth/signup.html', username=username, full_name=full_name, email=email)
+
+        # Create user with 'pending' status
+        new_user = User(
+            username=username,
+            full_name=full_name or username,
+            email=email or None,
+            role='user',
+            status='pending',
+            created_at=datetime.now(timezone.utc)
+        )
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.commit()
+
+        flash(
+            f'Registration submitted! Your account ({username}) is currently PENDING approval by the administrator (Shaheer). '
+            'You will be able to log in once your account has been reviewed and accepted.',
+            'info'
+        )
+        return redirect(url_for('main.login'))
+
+    return render_template('auth/signup.html')
+
+
+@main_bp.route('/logout', methods=['GET', 'POST'])
+def logout():
+    session.clear()
+    flash('You have been securely logged out.', 'info')
+    return redirect(url_for('main.login'))
+
+
+# =========================================================
+# ADMIN USER MANAGEMENT & APPROVAL ROUTES
+# =========================================================
+
+@main_bp.route('/admin/users')
+@admin_required
+def admin_users():
+    tab = request.args.get('tab', 'all')
+    search = request.args.get('search', '').strip()
+
+    query = User.query
+
+    if tab == 'pending':
+        query = query.filter_by(status='pending')
+    elif tab == 'approved':
+        query = query.filter_by(status='approved')
+    elif tab == 'rejected':
+        query = query.filter_by(status='rejected')
+
+    if search:
+        query = query.filter(
+            (User.username.ilike(f'%{search}%')) |
+            (User.full_name.ilike(f'%{search}%')) |
+            (User.email.ilike(f'%{search}%'))
+        )
+
+    users = query.order_by(
+        db.case((User.status == 'pending', 0), else_=1),
+        User.created_at.desc()
+    ).all()
+
+    total_count = User.query.count()
+    pending_count = User.query.filter_by(status='pending').count()
+    approved_count = User.query.filter_by(status='approved').count()
+    admin_count = User.query.filter_by(role='admin').count()
+
+    return render_template(
+        'admin/users.html',
+        users=users,
+        current_tab=tab,
+        search=search,
+        total_count=total_count,
+        pending_count=pending_count,
+        approved_count=approved_count,
+        admin_count=admin_count
+    )
+
+
+@main_bp.route('/admin/users/<int:user_id>/approve', methods=['POST'])
+@admin_required
+def admin_approve_user(user_id):
+    user = db.get_or_404(User, user_id)
+    user.status = 'approved'
+    user.approved_at = datetime.now(timezone.utc)
+    db.session.commit()
+    flash(f'User "{user.username}" has been APPROVED. They can now log in and manage their leases.', 'success')
+    return redirect(url_for('main.admin_users'))
+
+
+@main_bp.route('/admin/users/<int:user_id>/reject', methods=['POST'])
+@admin_required
+def admin_reject_user(user_id):
+    user = db.get_or_404(User, user_id)
+    if user.id == g.current_user.id:
+        flash('You cannot reject your own account.', 'danger')
+        return redirect(url_for('main.admin_users'))
+
+    user.status = 'rejected'
+    db.session.commit()
+    flash(f'User "{user.username}" has been REJECTED.', 'info')
+    return redirect(url_for('main.admin_users'))
+
+
+@main_bp.route('/admin/users/<int:user_id>/toggle-role', methods=['POST'])
+@admin_required
+def admin_toggle_role(user_id):
+    user = db.get_or_404(User, user_id)
+    if user.id == g.current_user.id:
+        flash('You cannot change your own admin role.', 'danger')
+        return redirect(url_for('main.admin_users'))
+
+    user.role = 'user' if user.role == 'admin' else 'admin'
+    db.session.commit()
+    flash(f'User "{user.username}" role updated to {user.role.upper()}.', 'success')
+    return redirect(url_for('main.admin_users'))
+
+
+@main_bp.route('/admin/users/<int:user_id>/delete', methods=['POST'])
+@admin_required
+def admin_delete_user(user_id):
+    user = db.get_or_404(User, user_id)
+    if user.id == g.current_user.id:
+        flash('You cannot delete your own account.', 'danger')
+        return redirect(url_for('main.admin_users'))
+
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+    flash(f'User "{username}" and all their associated records have been permanently deleted.', 'info')
+    return redirect(url_for('main.admin_users'))
+
+
+# =========================================================
+# APPLICATION CORE ROUTES (SCOPED TO CURRENT USER)
+# =========================================================
+
 @main_bp.route('/')
+@login_required
 def dashboard():
-    all_leases = Lease.query.order_by(Lease.created_at.desc()).all()
+    all_leases = Lease.query.filter_by(user_id=g.current_user.id).order_by(Lease.created_at.desc()).all()
     
     total_payable_balance = 0.0
     total_receivable_balance = 0.0
@@ -100,7 +362,13 @@ def dashboard():
                 total_receivable_monthly += metrics['remaining_monthly_amount']
                 active_receivable_count += 1
 
-    recent_payments = Payment.query.order_by(Payment.payment_date.desc(), Payment.id.desc()).limit(6).all()
+    recent_payments = (
+        Payment.query.join(Lease)
+        .filter(Lease.user_id == g.current_user.id)
+        .order_by(Payment.payment_date.desc(), Payment.id.desc())
+        .limit(6)
+        .all()
+    )
     
     return render_template(
         'dashboard.html',
@@ -117,13 +385,14 @@ def dashboard():
 
 
 @main_bp.route('/leases')
+@login_required
 def lease_list():
     lease_type = request.args.get('type', 'all')
     status = request.args.get('status', 'all')
     category = request.args.get('category', 'all')
     search = request.args.get('search', '').strip()
     
-    query = Lease.query
+    query = Lease.query.filter_by(user_id=g.current_user.id)
     
     if lease_type in ['payable', 'receivable']:
         query = query.filter_by(lease_type=lease_type)
@@ -139,8 +408,8 @@ def lease_list():
     leases = query.order_by(Lease.created_at.desc()).all()
     leases_with_metrics = [{'lease': l, 'metrics': calculate_lease_metrics(l)} for l in leases]
     
-    # Get distinct categories for filter
-    categories = [r[0] for r in db.session.query(Lease.category).distinct().all() if r[0]]
+    # Get distinct categories for current user
+    categories = [r[0] for r in db.session.query(Lease.category).filter_by(user_id=g.current_user.id).distinct().all() if r[0]]
     
     return render_template(
         'leases/list.html',
@@ -154,10 +423,11 @@ def lease_list():
 
 
 @main_bp.route('/leases/new', methods=['GET', 'POST'])
+@login_required
 def lease_create():
-    counterparties = Counterparty.query.order_by(Counterparty.name.asc()).all()
+    counterparties = Counterparty.query.filter_by(user_id=g.current_user.id).order_by(Counterparty.name.asc()).all()
     selected_party_id = request.args.get('party_id')
-    preselected_party = db.session.get(Counterparty, int(selected_party_id)) if selected_party_id and selected_party_id.isdigit() else None
+    preselected_party = Counterparty.query.filter_by(id=int(selected_party_id), user_id=g.current_user.id).first() if selected_party_id and selected_party_id.isdigit() else None
     
     if request.method == 'POST':
         try:
@@ -177,10 +447,11 @@ def lease_create():
                 
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date() if start_date_str else date.today()
             
-            # Find or auto-create Counterparty profile
-            cp = get_or_create_counterparty(party_name, party_contact)
+            # Find or auto-create Counterparty scoped to current user
+            cp = get_or_create_counterparty(party_name, party_contact, user_id=g.current_user.id)
             
             lease = Lease(
+                user_id=g.current_user.id,
                 title=title,
                 lease_type=lease_type,
                 counterparty_id=cp.id if cp else None,
@@ -196,7 +467,7 @@ def lease_create():
             db.session.add(lease)
             db.session.flush() # get lease.id
             
-            # Check for multiple contract document uploads
+            # Check for contract documents
             contract_files = request.files.getlist('contract_doc') or request.files.getlist('contract_docs')
             if contract_files:
                 save_multiple_files(
@@ -205,7 +476,7 @@ def lease_create():
                     lease_id=lease.id
                 )
             
-            # Check for initial down payment or first installment
+            # Check for initial down payment
             down_payment_amt = float(request.form.get('initial_payment_amount', 0) or 0)
             if down_payment_amt > 0:
                 p_date_str = request.form.get('initial_payment_date')
@@ -226,7 +497,6 @@ def lease_create():
                 db.session.add(payment)
                 db.session.flush()
                 
-                # Check for multiple initial receipt uploads
                 receipt_files = request.files.getlist('initial_payment_receipt') or request.files.getlist('initial_payment_receipts')
                 if receipt_files:
                     save_multiple_files(
@@ -236,7 +506,6 @@ def lease_create():
                         payment_id=payment.id
                     )
             
-            # Auto complete if paid in full
             if lease.total_paid >= lease.total_amount:
                 lease.status = 'completed'
                 
@@ -253,16 +522,18 @@ def lease_create():
 
 
 @main_bp.route('/leases/<int:id>')
+@login_required
 def lease_detail(id):
-    lease = db.get_or_404(Lease, id)
+    lease = Lease.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
     metrics = calculate_lease_metrics(lease)
     return render_template('leases/detail.html', lease=lease, metrics=metrics, today=date.today())
 
 
 @main_bp.route('/leases/<int:id>/edit', methods=['GET', 'POST'])
+@login_required
 def lease_edit(id):
-    lease = db.get_or_404(Lease, id)
-    counterparties = Counterparty.query.order_by(Counterparty.name.asc()).all()
+    lease = Lease.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
+    counterparties = Counterparty.query.filter_by(user_id=g.current_user.id).order_by(Counterparty.name.asc()).all()
     
     if request.method == 'POST':
         try:
@@ -271,7 +542,7 @@ def lease_edit(id):
             party_name = request.form.get('party_name', '').strip()
             party_contact = request.form.get('party_contact', '').strip()
             
-            cp = get_or_create_counterparty(party_name, party_contact)
+            cp = get_or_create_counterparty(party_name, party_contact, user_id=g.current_user.id)
             lease.counterparty_id = cp.id if cp else None
             lease.party_name = cp.name if cp else party_name
             lease.party_contact = party_contact or (cp.phone if cp else None)
@@ -298,8 +569,9 @@ def lease_edit(id):
 
 
 @main_bp.route('/leases/<int:id>/delete', methods=['POST'])
+@login_required
 def lease_delete(id):
-    lease = db.get_or_404(Lease, id)
+    lease = Lease.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
     title = lease.title
     
     # Delete uploaded files from disk
@@ -318,8 +590,9 @@ def lease_delete(id):
 
 
 @main_bp.route('/leases/<int:id>/payments', methods=['POST'])
+@login_required
 def payment_create(id):
-    lease = db.get_or_404(Lease, id)
+    lease = Lease.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
     try:
         amount = float(request.form.get('amount', 0))
         if amount <= 0:
@@ -343,9 +616,8 @@ def payment_create(id):
             notes=notes
         )
         db.session.add(payment)
-        db.session.flush() # get payment.id
+        db.session.flush()
         
-        # Check for multiple receipt file uploads
         receipt_files = request.files.getlist('receipt') or request.files.getlist('receipts')
         if receipt_files:
             save_multiple_files(
@@ -357,7 +629,6 @@ def payment_create(id):
                 
         db.session.commit()
         
-        # Check if settled
         if lease.remaining_balance <= 0.001 and lease.status == 'active':
             lease.status = 'completed'
             db.session.commit()
@@ -373,11 +644,15 @@ def payment_create(id):
 
 
 @main_bp.route('/payments/<int:id>/delete', methods=['POST'])
+@login_required
 def payment_delete(id):
-    payment = db.get_or_404(Payment, id)
+    payment = (
+        Payment.query.join(Lease)
+        .filter(Payment.id == id, Lease.user_id == g.current_user.id)
+        .first_or_404()
+    )
     lease_id = payment.lease_id
     
-    # Delete uploaded files for this payment
     for doc in payment.documents:
         filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], doc.filename)
         if os.path.exists(filepath):
@@ -389,7 +664,6 @@ def payment_delete(id):
     db.session.delete(payment)
     db.session.commit()
     
-    # If lease was marked completed, reactivate if balance remains
     lease = db.session.get(Lease, lease_id)
     if lease and lease.status == 'completed' and lease.remaining_balance > 0.001:
         lease.status = 'active'
@@ -400,8 +674,9 @@ def payment_delete(id):
 
 
 @main_bp.route('/leases/<int:id>/documents', methods=['POST'])
+@login_required
 def document_upload(id):
-    lease = db.get_or_404(Lease, id)
+    lease = Lease.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
     description = request.form.get('description', '').strip()
     
     files = request.files.getlist('document') or request.files.getlist('documents')
@@ -424,8 +699,13 @@ def document_upload(id):
 
 
 @main_bp.route('/documents/<int:id>/delete', methods=['POST'])
+@login_required
 def document_delete(id):
-    doc = db.get_or_404(Document, id)
+    doc = (
+        Document.query.join(Lease)
+        .filter(Document.id == id, Lease.user_id == g.current_user.id)
+        .first_or_404()
+    )
     lease_id = doc.lease_id
     filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], doc.filename)
     if os.path.exists(filepath):
@@ -441,8 +721,20 @@ def document_delete(id):
 
 
 @main_bp.route('/uploads/<filename>')
+@login_required
 def uploaded_file(filename):
     filename = secure_filename(filename)
+    
+    # Verify file ownership unless admin or sample file
+    if not filename.startswith('sample_'):
+        doc = (
+            Document.query.join(Lease)
+            .filter(Document.filename == filename)
+            .first()
+        )
+        if doc and doc.lease and doc.lease.user_id != g.current_user.id and not g.current_user.is_admin:
+            abort(403)
+
     primary_folder = current_app.config.get('UPLOAD_FOLDER')
     if primary_folder and os.path.exists(os.path.join(primary_folder, filename)):
         return send_from_directory(primary_folder, filename)
@@ -455,13 +747,14 @@ def uploaded_file(filename):
 
 
 # =========================================================
-# COUNTERPARTY / PERSON PROFILE ROUTES
+# COUNTERPARTY / PERSON PROFILE ROUTES (SCOPED TO USER)
 # =========================================================
 
 @main_bp.route('/parties')
+@login_required
 def party_list():
     search = request.args.get('search', '').strip()
-    query = Counterparty.query
+    query = Counterparty.query.filter_by(user_id=g.current_user.id)
     
     if search:
         query = query.filter(
@@ -469,17 +762,14 @@ def party_list():
         )
         
     parties = query.order_by(Counterparty.name.asc()).all()
-    
-    # Backfill/sync any leases that might have string party_name without counterparty_id
-    # so every person shows up in profiles!
     return render_template('parties/list.html', parties=parties, search=search)
 
 
 @main_bp.route('/parties/<int:id>')
+@login_required
 def party_detail(id):
-    party = db.get_or_404(Counterparty, id)
+    party = Counterparty.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
     
-    # All leases with this party with their metrics
     leases_with_metrics = []
     all_payments = []
     
@@ -504,8 +794,9 @@ def party_detail(id):
 
 
 @main_bp.route('/parties/<int:id>/edit', methods=['POST'])
+@login_required
 def party_edit(id):
-    party = db.get_or_404(Counterparty, id)
+    party = Counterparty.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
     try:
         new_name = request.form.get('name', '').strip()
         if not new_name:
@@ -517,7 +808,6 @@ def party_edit(id):
         party.email = request.form.get('email', '').strip() or None
         party.notes = request.form.get('notes', '').strip() or None
         
-        # Sync lease.party_name for all associated leases
         for l in party.leases:
             l.party_name = new_name
             if party.phone:
@@ -533,10 +823,10 @@ def party_edit(id):
 
 
 @main_bp.route('/parties/<int:id>/delete', methods=['POST'])
+@login_required
 def party_delete(id):
-    party = db.get_or_404(Counterparty, id)
+    party = Counterparty.query.filter_by(id=id, user_id=g.current_user.id).first_or_404()
     name = party.name
-    # Unlink from leases before deleting party
     for l in party.leases:
         l.counterparty_id = None
     db.session.delete(party)
@@ -546,8 +836,9 @@ def party_delete(id):
 
 
 @main_bp.route('/api/stats')
+@login_required
 def api_stats():
-    leases = Lease.query.all()
+    leases = Lease.query.filter_by(user_id=g.current_user.id).all()
     payable_paid = sum(l.total_paid for l in leases if l.lease_type == 'payable')
     payable_rem = sum(l.remaining_balance for l in leases if l.lease_type == 'payable')
     receivable_paid = sum(l.total_paid for l in leases if l.lease_type == 'receivable')
