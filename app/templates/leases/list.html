@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+
+{% block title %}Lease Portfolio - LeaseFlow{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-title-row">
+  <div>
+    <h1>Lease Portfolio</h1>
+    <p>Manage all your ongoing liabilities and receivables in one centralized place.</p>
+  </div>
+  <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action">
+    <i class="bi bi-plus-lg"></i> Add New Lease
+  </a>
+</div>
+
+<!-- Filter and Search Toolbar (Matching Screenshot) -->
+<form method="GET" action="{{ url_for('main.lease_list') }}" class="filter-bar-card">
+  <div class="filter-left-group">
+    <!-- Pill Tabs -->
+    <div class="pill-tab-group">
+      <a href="{{ url_for('main.lease_list', type='all', status=current_status, category=current_category, search=search) }}" 
+         class="pill-tab {% if current_type == 'all' %}active{% endif %}">
+        All
+      </a>
+      <a href="{{ url_for('main.lease_list', type='payable', status=current_status, category=current_category, search=search) }}" 
+         class="pill-tab payable-tab {% if current_type == 'payable' %}active{% endif %}">
+        <i class="bi bi-arrow-up-right text-danger"></i> Payable (I Owe)
+      </a>
+      <a href="{{ url_for('main.lease_list', type='receivable', status=current_status, category=current_category, search=search) }}" 
+         class="pill-tab receivable-tab {% if current_type == 'receivable' %}active{% endif %}">
+        <i class="bi bi-arrow-down-left text-success"></i> Receivable (Given)
+      </a>
+    </div>
+
+    <!-- Status Dropdown -->
+    <select name="status" class="filter-select" onchange="this.form.submit()">
+      <option value="all" {% if current_status == 'all' %}selected{% endif %}>All Statuses</option>
+      <option value="active" {% if current_status == 'active' %}selected{% endif %}>Active Only</option>
+      <option value="completed" {% if current_status == 'completed' %}selected{% endif %}>Completed Only</option>
+    </select>
+
+    <!-- Category Dropdown -->
+    <select name="category" class="filter-select" onchange="this.form.submit()">
+      <option value="all" {% if current_category == 'all' %}selected{% endif %}>All Categories</option>
+      {% if categories %}
+        {% for cat in categories %}
+          <option value="{{ cat }}" {% if current_category == cat %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      {% endif %}
+    </select>
+  </div>
+
+  <div class="filter-right-group">
+    <input type="hidden" name="type" value="{{ current_type }}">
+    
+    <div class="filter-search-box">
+      <i class="bi bi-search text-muted"></i>
+      <input type="text" name="search" placeholder="Search item, vendor, or customer" value="{{ search }}">
+    </div>
+
+    <button type="submit" class="btn-filter-action">
+      <i class="bi bi-sliders"></i> Filter
+    </button>
+
+    {% if search or current_type != 'all' or current_status != 'all' or current_category != 'all' %}
+      <a href="{{ url_for('main.lease_list') }}" class="btn-filter-action" title="Clear Filters">
+        <i class="bi bi-x-lg"></i>
+      </a>
+    {% endif %}
+  </div>
+</form>
+
+<!-- Leases Grid (Matching Screenshot) -->
+{% if leases_with_metrics %}
+  <div class="cards-grid">
+    {% for item in leases_with_metrics %}
+      {% set l = item.lease %}
+      {% set m = item.metrics %}
+      <a href="{{ url_for('main.lease_detail', id=l.id) }}" class="modern-lease-card {% if l.lease_type == 'payable' %}payable{% else %}receivable{% endif %}">
+        <div class="card-inner">
+          <!-- Top Row: Title & Badge -->
+          <div class="card-top-row">
+            <div class="card-item-title">{{ l.title }}</div>
+            <div>
+              {% if l.lease_type == 'payable' %}
+                <span class="badge-tag payable">PAYABLE</span>
+              {% else %}
+                <span class="badge-tag receivable">RECEIVABLE</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Counterparty & Category Subtitle -->
+          <div class="card-party-sub">
+            <i class="bi bi-person"></i>
+            <span class="card-party-name">{{ l.party_name }}</span>
+            <span style="color: var(--text-light);">&bull;</span>
+            <span>{{ l.category }}</span>
+          </div>
+
+          <!-- Total & Progress -->
+          <div class="card-total-section">
+            <div class="card-total-row">
+              <span class="card-total-label">Total</span>
+              <span class="card-paid-pct">{{ m.progress_pct }}% Paid</span>
+            </div>
+            <div class="card-total-value">{{ l.total_amount|currency }}</div>
+            <div class="card-progress-track">
+              <div class="card-progress-fill {% if l.lease_type == 'payable' %}payable{% else %}receivable{% endif %}" style="width: {{ m.progress_pct }}%;"></div>
+            </div>
+          </div>
+
+          <!-- Gray Stats Box: Remaining Balance vs Left Per Month -->
+          <div class="card-stats-box">
+            <div class="stats-col">
+              <span class="stats-col-label">REMAINING BALANCE</span>
+              <span class="stats-col-val {% if l.lease_type == 'payable' %}payable{% else %}receivable{% endif %}">
+                {{ m.remaining_balance|currency }}
+              </span>
+            </div>
+            <div class="stats-col">
+              <span class="stats-col-label">LEFT PER MONTH</span>
+              <span class="stats-col-val" style="color: var(--text-main);">
+                {{ m.remaining_monthly_amount|currency }}
+              </span>
+              <span class="stats-col-sub">/mo ({{ m.remaining_months }} left)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card Footer -->
+        <div class="card-bottom-footer">
+          <div class="card-tenure-info">
+            <i class="bi bi-clock"></i>
+            <span>{{ l.tenure_months }} Months Total</span>
+          </div>
+          <div>
+            {% if m.is_completed %}
+              <span class="status-pill settled">SETTLED</span>
+            {% elif m.due_status == 'overdue' %}
+              <span class="status-pill due-now">DUE NOW</span>
+            {% else %}
+              <span class="status-pill active">ACTIVE</span>
+            {% endif %}
+          </div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body">
+      <div class="empty-state">
+        <i class="bi bi-inbox empty-state-icon"></i>
+        <h3>No matching leases found</h3>
+        <p>Try adjusting your search filters or create a new lease.</p>
+        <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action" style="margin-top: 1rem;">
+          <i class="bi bi-plus-lg"></i> Add New Lease
+        </a>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}

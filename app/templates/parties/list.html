@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+
+{% block title %}Persons & Counterparties - LeaseFlow{% endblock %}
+
+{% block content %}
+<div class="page-title-row">
+  <div>
+    <h1>Persons & Counterparties</h1>
+    <p>View net balance, ongoing leases, and payment history for each person or business.</p>
+  </div>
+  <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action">
+    <i class="bi bi-plus-lg"></i> Add New Lease
+  </a>
+</div>
+
+<!-- Search Toolbar -->
+<div class="filter-bar-card" style="margin-bottom: 2rem;">
+  <form method="GET" action="{{ url_for('main.party_list') }}" style="display: flex; gap: 0.5rem; width: 100%; max-width: 450px;">
+    <div class="filter-search-box" style="flex: 1;">
+      <i class="bi bi-search text-muted"></i>
+      <input type="text" name="search" placeholder="Search person by name or phone..." value="{{ search }}">
+    </div>
+    <button type="submit" class="btn-filter-action">Search</button>
+    {% if search %}
+      <a href="{{ url_for('main.party_list') }}" class="btn-filter-action" title="Clear search">
+        <i class="bi bi-x-lg"></i>
+      </a>
+    {% endif %}
+  </form>
+</div>
+
+<!-- Counterparties Grid -->
+{% if parties %}
+  <div class="cards-grid">
+    {% for p in parties %}
+      <a href="{{ url_for('main.party_detail', id=p.id) }}" class="modern-lease-card {% if p.net_balance < 0 %}payable{% elif p.net_balance > 0 %}receivable{% endif %}">
+        <div class="card-inner">
+          <div class="card-top-row">
+            <div>
+              <div class="card-item-title" style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--primary-blue-light); color: var(--primary-blue); display: flex; align-items: center; justify-content: center; font-size: 1rem;">
+                  <i class="bi bi-person-fill"></i>
+                </div>
+                <span>{{ p.name }}</span>
+              </div>
+              <div class="card-party-sub" style="margin-top: 0.35rem;">
+                {% if p.phone %}
+                  <i class="bi bi-telephone"></i> <span>{{ p.phone }}</span>
+                {% elif p.email %}
+                  <i class="bi bi-envelope"></i> <span>{{ p.email }}</span>
+                {% else %}
+                  <span class="text-muted">No contact info</span>
+                {% endif %}
+              </div>
+            </div>
+            <div>
+              <span class="status-pill active">{{ p.leases|length }} DEALS</span>
+            </div>
+          </div>
+
+          <!-- Balance Overview Box -->
+          <div class="card-stats-box">
+            <div class="stats-col">
+              <span class="stats-col-label">THEY OWE YOU</span>
+              <span class="stats-col-val receivable">
+                {{ p.total_receivable_balance|currency }}
+              </span>
+            </div>
+            <div class="stats-col">
+              <span class="stats-col-label">YOU OWE THEM</span>
+              <span class="stats-col-val payable">
+                {{ p.total_payable_balance|currency }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Net Position Highlight -->
+          <div style="padding: 0.6rem 0.85rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; {% if p.net_balance > 0 %}background: #e6f9f0; color: #059669;{% elif p.net_balance < 0 %}background: #fee2e2; color: #dc2626;{% else %}background: #f1f5f9; color: var(--text-muted);{% endif %}">
+            <span>Net Position:</span>
+            <span>
+              {% if p.net_balance > 0 %}
+                +{{ p.net_balance|currency }} (Owed to you)
+              {% elif p.net_balance < 0 %}
+                -{{ (p.net_balance|abs)|currency }} (You owe)
+              {% else %}
+                Settled / Even
+              {% endif %}
+            </span>
+          </div>
+        </div>
+
+        <div class="card-bottom-footer">
+          <span style="font-size: 0.825rem; color: var(--primary-blue); font-weight: 700;">
+            <i class="bi bi-person-lines-fill"></i> View Profile & History
+          </span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">
+            {{ p.active_leases_count }} Active
+          </span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body">
+      <div class="empty-state">
+        <i class="bi bi-people empty-state-icon"></i>
+        <h3>No Counterparties Found</h3>
+        <p>Counterparty profiles are automatically created whenever you create a lease with a person's name.</p>
+        <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action" style="margin-top: 1rem;">
+          <i class="bi bi-plus-lg"></i> Create Lease
+        </a>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}

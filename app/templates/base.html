@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}LeaseFlow - Smart Lease Management{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Left Navigation Sidebar -->
+    <aside class="app-sidebar">
+      <!-- Sidebar Brand -->
+      <a href="{{ url_for('main.dashboard') }}" class="sidebar-brand">
+        <div class="brand-logo-box">LF</div>
+        <div class="brand-info">
+          <h2>LeaseFlow</h2>
+          <span>MANAGER & TRACKER</span>
+        </div>
+      </a>
+
+      <!-- Sidebar Navigation Menu -->
+      <nav class="sidebar-nav">
+        <a href="{{ url_for('main.dashboard') }}" class="nav-link-item {% if request.endpoint == 'main.dashboard' %}active{% endif %}">
+          <i class="bi bi-grid-1x2"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="{{ url_for('main.lease_list') }}" class="nav-link-item {% if request.endpoint in ['main.lease_list', 'main.lease_detail', 'main.lease_edit'] %}active{% endif %}">
+          <i class="bi bi-folder2"></i>
+          <span>All Leases</span>
+        </a>
+        <a href="{{ url_for('main.party_list') }}" class="nav-link-item {% if request.endpoint in ['main.party_list', 'main.party_detail'] %}active{% endif %}">
+          <i class="bi bi-people"></i>
+          <span>Persons / Parties</span>
+        </a>
+      </nav>
+
+      <!-- Bottom Add Button in Sidebar -->
+      <div class="sidebar-bottom">
+        <a href="{{ url_for('main.lease_create') }}" class="btn-sidebar-add">
+          <i class="bi bi-plus-lg"></i>
+          <span>New Lease</span>
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="app-main">
+      <!-- Topbar -->
+      <header class="app-topbar">
+        <form method="GET" action="{{ url_for('main.lease_list') }}" class="topbar-search">
+          <i class="bi bi-search text-muted"></i>
+          <input type="text" name="search" placeholder="Search leases...">
+        </form>
+
+        <div class="topbar-actions">
+          <button type="button" class="topbar-icon-btn" title="Notifications">
+            <i class="bi bi-bell"></i>
+          </button>
+          <div class="topbar-avatar" title="User Profile">
+            <i class="bi bi-person"></i>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Body Container -->
+      <main class="main-content">
+        <!-- Flash Alert Messages -->
+        <div class="flash-container">
+          {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+              {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    {% if category == 'success' %}<i class="bi bi-check-circle-fill"></i>
+                    {% elif category == 'danger' %}<i class="bi bi-exclamation-octagon-fill"></i>
+                    {% elif category == 'warning' %}<i class="bi bi-exclamation-triangle-fill"></i>
+                    {% else %}<i class="bi bi-info-circle-fill"></i>
+                    {% endif %}
+                    <span>{{ message }}</span>
+                  </div>
+                  <button type="button" class="alert-close">&times;</button>
+                </div>
+              {% endfor %}
+            {% endif %}
+          {% endwith %}
+        </div>
+
+        {% block content %}{% endblock %}
+      </main>
+
+      <!-- Footer -->
+      <footer class="app-footer">
+        &copy; 2026 LeaseFlow Application &bull; Dual-Track Payable & Receivable Manager
+      </footer>
+    </div>
+  </div>
+
+  <!-- Global Document Preview Modal -->
+  <div class="modal-backdrop" id="docPreviewModal">
+    <div class="modal-dialog modal-dialog-large">
+      <div class="modal-header">
+        <h3 id="previewModalTitle"><i class="bi bi-file-earmark-text"></i> Document Preview</h3>
+        <button type="button" class="modal-close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body" id="previewModalBody">
+        <!-- Preview Content injected via JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <a href="#" id="previewDownloadLink" class="btn btn-secondary btn-sm" download>
+          <i class="bi bi-download"></i> Download Original
+        </a>
+        <button type="button" class="btn btn-primary btn-sm" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

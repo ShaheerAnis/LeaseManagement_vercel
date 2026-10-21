@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - LeaseFlow{% endblock %}
+
+{% block content %}
+<div class="page-title-row">
+  <div>
+    <h1>Financial Overview & Leases</h1>
+    <p>Track your commitments (payable) and customer installments (receivable) in real time.</p>
+  </div>
+  <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action">
+    <i class="bi bi-plus-lg"></i> Add New Lease
+  </a>
+</div>
+
+<!-- Key Stat Cards -->
+<div class="metrics-grid">
+  <!-- Payable Balance -->
+  <div class="stat-card payable">
+    <div class="stat-header">
+      <span class="stat-title">Payable Leases (I Owe)</span>
+      <div class="stat-icon payable">
+        <i class="bi bi-arrow-up-right"></i>
+      </div>
+    </div>
+    <div class="stat-value payable">{{ total_payable_balance|currency }}</div>
+    <div class="stat-meta">
+      <span class="badge-tag payable" style="margin-right: 0.35rem;">{{ active_payable_count }} Active</span>
+      <span>Monthly Dues: <strong>{{ total_payable_monthly|currency }}</strong></span>
+    </div>
+  </div>
+
+  <!-- Receivable Balance -->
+  <div class="stat-card receivable">
+    <div class="stat-header">
+      <span class="stat-title">Receivable Leases (To Collect)</span>
+      <div class="stat-icon receivable">
+        <i class="bi bi-arrow-down-left"></i>
+      </div>
+    </div>
+    <div class="stat-value receivable">{{ total_receivable_balance|currency }}</div>
+    <div class="stat-meta">
+      <span class="badge-tag receivable" style="margin-right: 0.35rem;">{{ active_receivable_count }} Active</span>
+      <span>Monthly Income: <strong>{{ total_receivable_monthly|currency }}</strong></span>
+    </div>
+  </div>
+
+  <!-- Monthly Net Commitment -->
+  <div class="stat-card">
+    <div class="stat-header">
+      <span class="stat-title">Monthly Net Commitments</span>
+      <div class="stat-icon primary">
+        <i class="bi bi-calendar-check"></i>
+      </div>
+    </div>
+    {% set net_monthly = total_receivable_monthly - total_payable_monthly %}
+    <div class="stat-value {% if net_monthly >= 0 %}text-success{% else %}text-danger{% endif %}">
+      {% if net_monthly < 0 %}-{% endif %}{{ (net_monthly|abs)|currency }}
+    </div>
+    <div class="stat-meta">
+      <span class="text-muted">Pay: {{ total_payable_monthly|currency }} &bull; Receive: {{ total_receivable_monthly|currency }}</span>
+    </div>
+  </div>
+
+  <!-- Total Leases -->
+  <div class="stat-card">
+    <div class="stat-header">
+      <span class="stat-title">Total Managed Leases</span>
+      <div class="stat-icon primary">
+        <i class="bi bi-stack"></i>
+      </div>
+    </div>
+    <div class="stat-value" style="color: var(--text-main);">{{ total_leases }}</div>
+    <div class="stat-meta">
+      <span class="text-muted">All active, completed & historical</span>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard Main Grid -->
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+  <!-- Left Column: Active Leases Cards -->
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="bi bi-lightning-charge text-primary"></i> Active & Recent Leases</h3>
+        <a href="{{ url_for('main.lease_list') }}" class="btn btn-secondary btn-sm">
+          View All <i class="bi bi-arrow-right"></i>
+        </a>
+      </div>
+      <div class="card-body">
+        {% if leases_with_metrics %}
+          <div class="cards-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
+            {% for item in leases_with_metrics %}
+              {% set l = item.lease %}
+              {% set m = item.metrics %}
+              <a href="{{ url_for('main.lease_detail', id=l.id) }}" class="modern-lease-card {% if l.lease_type == 'payable' %}payable{% else %}receivable{% endif %}">
+                <div class="card-inner">
+                  <div class="card-top-row">
+                    <div class="card-item-title" style="font-size: 1.2rem;">{{ l.title }}</div>
+                    <div>
+                      {% if l.lease_type == 'payable' %}
+                        <span class="badge-tag payable">PAYABLE</span>
+                      {% else %}
+                        <span class="badge-tag receivable">RECEIVABLE</span>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="card-party-sub">
+                    <i class="bi bi-person"></i>
+                    <span class="card-party-name">{{ l.party_name }}</span>
+                    <span style="color: var(--text-light);">&bull;</span>
+                    <span>{{ l.category }}</span>
+                  </div>
+
+                  <div class="card-total-section">
+                    <div class="card-total-row">
+                      <span class="card-total-label">Total</span>
+                      <span class="card-paid-pct">{{ m.progress_pct }}% Paid</span>
+                    </div>
+                    <div class="card-total-value">{{ l.total_amount|currency }}</div>
+                    <div class="card-progress-track">
+                      <div class="card-progress-fill {% if l.lease_type == 'payable' %}payable{% else %}receivable{% endif %}" style="width: {{ m.progress_pct }}%;"></div>
+                    </div>
+                  </div>
+
+                  <div class="card-stats-box">
+                    <div class="stats-col">
+                      <span class="stats-col-label">REMAINING BALANCE</span>
+                      <span class="stats-col-val {% if l.lease_type == 'payable' %}payable{% else %}receivable{% endif %}" style="font-size: 1.1rem;">
+                        {{ m.remaining_balance|currency }}
+                      </span>
+                    </div>
+                    <div class="stats-col">
+                      <span class="stats-col-label">LEFT PER MONTH</span>
+                      <span class="stats-col-val" style="font-size: 1.1rem; color: var(--text-main);">
+                        {{ m.remaining_monthly_amount|currency }}
+                      </span>
+                      <span class="stats-col-sub">/mo ({{ m.remaining_months }} left)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card-bottom-footer">
+                  <div class="card-tenure-info">
+                    <i class="bi bi-clock"></i>
+                    <span>{{ l.tenure_months }} Months Total</span>
+                  </div>
+                  <div>
+                    {% if m.is_completed %}
+                      <span class="status-pill settled">SETTLED</span>
+                    {% elif m.due_status == 'overdue' %}
+                      <span class="status-pill due-now">DUE NOW</span>
+                    {% else %}
+                      <span class="status-pill active">ACTIVE</span>
+                    {% endif %}
+                  </div>
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <i class="bi bi-journal-plus empty-state-icon"></i>
+            <h4>No Leases Found</h4>
+            <p>Get started by adding your first mobile phone, cash deal, or equipment lease.</p>
+            <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action" style="margin-top: 1rem;">
+              <i class="bi bi-plus-lg"></i> Create First Lease
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Column: Recent Payments & Quick Activity -->
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="bi bi-clock-history text-primary"></i> Recent Payments</h3>
+      </div>
+      <div class="card-body" style="padding: 0.5rem 1rem;">
+        {% if recent_payments %}
+          <div style="display: flex; flex-direction: column;">
+            {% for payment in recent_payments %}
+              <div style="padding: 0.85rem 0.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <div style="font-weight: 800; font-family: var(--font-heading); font-size: 0.95rem; color: var(--text-main);">
+                    {{ payment.amount|currency }}
+                  </div>
+                  <div style="font-size: 0.8rem; color: var(--text-muted);">
+                    <a href="{{ url_for('main.lease_detail', id=payment.lease_id) }}" style="font-weight: 600;">
+                      {{ payment.lease.title }}
+                    </a>
+                    &bull; {{ payment.payment_date|date_format('%b %d, %Y') }}
+                  </div>
+                  <div style="font-size: 0.75rem; color: var(--text-light);">
+                    via {{ payment.payment_method }} {% if payment.reference_no %}(#{{ payment.reference_no }}){% endif %}
+                  </div>
+                </div>
+
+                <div>
+                  {% if payment.documents %}
+                    {% set doc = payment.documents[0] %}
+                    <button class="btn btn-secondary btn-icon" title="View Receipt ({{ doc.original_filename }})" 
+                            onclick="previewDocument('{{ url_for('main.uploaded_file', filename=doc.filename) }}', '{{ doc.file_type }}', '{{ doc.original_filename }}')">
+                      <i class="bi bi-file-earmark-image" style="color: var(--primary-blue);"></i>
+                    </button>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state" style="padding: 2rem 1rem;">
+            <i class="bi bi-receipt empty-state-icon" style="font-size: 2rem;"></i>
+            <p>No payments recorded yet.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Quick Info Banner -->
+    <div class="card" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: #fff; border: none;">
+      <div class="card-body" style="padding: 1.5rem;">
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem;">
+          <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center;">
+            <i class="bi bi-calculator"></i>
+          </div>
+          <h4 style="color: #fff; font-size: 1.05rem;">Dynamic Recalculations</h4>
+        </div>
+        <p style="font-size: 0.85rem; color: #e0e7ff; line-height: 1.4;">
+          Whenever you pay a down payment or an irregular lump sum, LeaseFlow recalculates the remaining monthly amount evenly over remaining tenure months.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

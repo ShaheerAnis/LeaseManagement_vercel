@@ -1,0 +1,258 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if lease %}Edit Lease - {{ lease.title }}{% else %}New Lease - LeaseFlow{% endif %}{% endblock %}
+
+{% block content %}
+<div style="max-width: 860px; margin: 0 auto;">
+  <!-- Breadcrumb -->
+  <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.25rem; font-size: 0.875rem;">
+    <a href="{% if lease %}{{ url_for('main.lease_detail', id=lease.id) }}{% else %}{{ url_for('main.lease_list') }}{% endif %}" style="color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+      <i class="bi bi-arrow-left"></i> {% if lease %}Back to Lease{% else %}All Leases{% endif %}
+    </a>
+    <span style="color: var(--text-light);">/</span>
+    <span style="color: var(--text-main); font-weight: 700;">{% if lease %}Edit {{ lease.title }}{% else %}New Lease{% endif %}</span>
+  </div>
+
+  <div class="page-title-row">
+    <div>
+      <h1>{% if lease %}Edit Lease{% else %}Create New Lease{% endif %}</h1>
+      <p>{% if lease %}Update parameters and details for {{ lease.title }}{% else %}Track a purchase on installments or an item given out on lease.{% endif %}</p>
+    </div>
+    <a href="{% if lease %}{{ url_for('main.lease_detail', id=lease.id) }}{% else %}{{ url_for('main.lease_list') }}{% endif %}" class="btn btn-secondary">
+      Cancel
+    </a>
+  </div>
+
+  <form method="POST" enctype="multipart/form-data" class="card" style="border-radius: var(--radius-xl);">
+    <div class="card-body" style="padding: 2.25rem;">
+
+      <!-- Lease Direction Radio Cards -->
+      <div class="form-group" style="margin-bottom: 1.75rem;">
+        <label class="form-label" style="font-size: 0.9rem;">Lease Direction <span class="required">*</span></label>
+        <div class="radio-cards">
+          <div class="radio-card payable">
+            <input type="radio" name="lease_type" id="type_payable" value="payable" 
+                   {% if not lease or lease.lease_type == 'payable' %}checked{% endif %}>
+            <label for="type_payable">
+              <div class="radio-card-title text-danger" style="display: flex; align-items: center; gap: 0.4rem;">
+                <i class="bi bi-arrow-up-right-circle-fill"></i> Lease Payable (I Owe)
+              </div>
+              <div class="radio-card-desc">
+                I bought an item on installment plan (e.g. Mobile phone, car, appliance, laptop).
+              </div>
+            </label>
+          </div>
+
+          <div class="radio-card receivable">
+            <input type="radio" name="lease_type" id="type_receivable" value="receivable"
+                   {% if lease and lease.lease_type == 'receivable' %}checked{% endif %}>
+            <label for="type_receivable">
+              <div class="radio-card-title text-success" style="display: flex; align-items: center; gap: 0.4rem;">
+                <i class="bi bi-arrow-down-left-circle-fill"></i> Lease Receivable (I Collect)
+              </div>
+              <div class="radio-card-desc">
+                I gave cash / item on lease to a person or customer who pays me monthly.
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Basic Info -->
+      <div class="form-grid">
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label class="form-label" for="title">Item / Lease Title <span class="required">*</span></label>
+          <input type="text" id="title" name="title" class="form-control" placeholder="e.g. iPhone 16 Pro Max, Cash Loan, Honda Civic, MacBook Pro" 
+                 value="{{ lease.title if lease else '' }}" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="party_name">Counterparty (Person / Store) <span class="required">*</span></label>
+          <input type="text" id="party_name" name="party_name" list="counterparty_datalist" class="form-control" 
+                 placeholder="Select existing person or type new name..." 
+                 value="{{ preselected_party.name if preselected_party else (lease.party_name if lease else '') }}" 
+                 autocomplete="off" required>
+          <datalist id="counterparty_datalist">
+            {% if counterparties %}
+              {% for cp in counterparties %}
+                <option value="{{ cp.name }}" data-phone="{{ cp.phone or '' }}" data-email="{{ cp.email or '' }}">
+                  {% if cp.phone %}Phone: {{ cp.phone }}{% endif %}
+                </option>
+              {% endfor %}
+            {% endif %}
+          </datalist>
+          <div class="form-hint">
+            <i class="bi bi-person-check text-primary"></i> Pick existing or type full name for a new profile
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="party_contact">Contact Phone / Email (Optional)</label>
+          <input type="text" id="party_contact" name="party_contact" class="form-control" placeholder="e.g. +92 300 1234567" 
+                 value="{{ preselected_party.phone if preselected_party and preselected_party.phone else (lease.party_contact if lease else '') }}">
+          <div class="form-hint">Auto-fills when choosing an existing person</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="category">Category</label>
+          <select id="category" name="category" class="form-control">
+            {% set cats = ['Electronics', 'Vehicles', 'Appliances', 'Cash / Personal', 'Real Estate', 'Machinery & Tools', 'Other'] %}
+            {% for c in cats %}
+              <option value="{{ c }}" {% if lease and lease.category == c %}selected{% elif not lease and c == 'Electronics' %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="start_date">Start Date <span class="required">*</span></label>
+          <input type="date" id="start_date" name="start_date" class="form-control" 
+                 value="{{ lease.start_date.strftime('%Y-%m-%d') if lease else today.strftime('%Y-%m-%d') }}" required>
+        </div>
+      </div>
+
+      <!-- Financial Terms -->
+      <div style="margin: 1.5rem 0 1rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+        <h4 style="font-size: 1.05rem; font-weight: 800; margin-bottom: 1rem; color: var(--text-main);">
+          <i class="bi bi-cash-stack text-primary"></i> Financial Terms
+        </h4>
+        
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="total_amount">Total Contract Amount <span class="required">*</span></label>
+            <input type="number" step="any" min="1" id="total_amount" name="total_amount" class="form-control" placeholder="e.g. 280000" 
+                   value="{{ lease.total_amount if lease else '' }}" required>
+            <div class="form-hint">Total agreed amount over the full duration</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tenure_months">Tenure (Duration in Months) <span class="required">*</span></label>
+            <input type="number" min="1" max="360" id="tenure_months" name="tenure_months" class="form-control" placeholder="e.g. 12" 
+                   value="{{ lease.tenure_months if lease else '12' }}" required>
+            <div class="form-hint">Number of monthly installment cycles</div>
+          </div>
+
+          {% if lease %}
+            <div class="form-group">
+              <label class="form-label" for="status">Lease Status</label>
+              <select id="status" name="status" class="form-control">
+                <option value="active" {% if lease.status == 'active' %}selected{% endif %}>Active</option>
+                <option value="completed" {% if lease.status == 'completed' %}selected{% endif %}>Completed (Settled)</option>
+                <option value="cancelled" {% if lease.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+              </select>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if not lease %}
+        <!-- Optional Initial Payment / Month 1 Payment on Creation -->
+        <div style="margin: 1.5rem 0 1rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+          <h4 style="font-size: 1.05rem; font-weight: 800; margin-bottom: 0.35rem; color: var(--text-main);">
+            <i class="bi bi-wallet-fill text-primary"></i> Initial Down Payment / First Month (Optional)
+          </h4>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            If you have already paid or collected an initial amount (e.g. 100,000 PKR), record it upfront.
+          </p>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label" for="initial_payment_amount">Initial Paid Amount</label>
+              <input type="number" step="any" min="0" id="initial_payment_amount" name="initial_payment_amount" class="form-control" placeholder="e.g. 100000">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="initial_payment_date">Payment Date</label>
+              <input type="date" id="initial_payment_date" name="initial_payment_date" class="form-control" value="{{ today.strftime('%Y-%m-%d') }}">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="initial_payment_method">Payment Method</label>
+              <select id="initial_payment_method" name="initial_payment_method" class="form-control">
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Cash">Cash</option>
+                <option value="Debit/Credit Card">Debit/Credit Card</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Online / Mobile Wallet">Online / Mobile Wallet</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="initial_payment_ref">Reference / Transaction ID</label>
+              <input type="text" id="initial_payment_ref" name="initial_payment_ref" class="form-control" placeholder="e.g. TRX-982348">
+            </div>
+
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label class="form-label">Payment Proof / Receipt (Image or PDF) &bull; <small style="color: var(--primary-blue); font-weight: 600;">Multiple files supported</small></label>
+              <div class="file-dropzone">
+                <input type="file" id="initial_payment_receipt" name="initial_payment_receipt" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple style="display:none;">
+                <label for="initial_payment_receipt" style="cursor: pointer; display: block;">
+                  <div class="dropzone-icon"><i class="bi bi-cloud-arrow-up"></i></div>
+                  <div class="dropzone-text">Click or drag receipt(s) here</div>
+                  <div class="dropzone-hint">Upload one or multiple receipt slips, bank screenshots, or PDF proofs</div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Live Dynamic Recalculation Preview Box -->
+      <div class="live-calc-box">
+        <div class="live-calc-title">
+          <i class="bi bi-calculator-fill"></i> Live Recalculation Projection
+        </div>
+        <div class="live-calc-grid">
+          <div class="live-calc-item">
+            <div class="live-calc-label">Original Monthly Rate</div>
+            <div class="live-calc-val" id="calc_standard_monthly">0.00</div>
+          </div>
+          <div class="live-calc-item">
+            <div class="live-calc-label">Remaining Balance</div>
+            <div class="live-calc-val" id="calc_remaining_balance">0.00</div>
+          </div>
+          <div class="live-calc-item">
+            <div class="live-calc-label">Remaining Months</div>
+            <div class="live-calc-val" id="calc_remaining_months">0 mo</div>
+          </div>
+          <div class="live-calc-item">
+            <div class="live-calc-label">Left Per Month</div>
+            <div class="live-calc-val" id="calc_remaining_monthly" style="color: var(--primary-blue);">0.00</div>
+          </div>
+        </div>
+      </div>
+
+      {% if not lease %}
+        <!-- Contract / Lease Agreement Attachment -->
+        <div style="margin: 1.5rem 0 1rem;">
+          <label class="form-label">Lease Agreement / Contract Document(s) (Optional) &bull; <small style="color: var(--primary-blue); font-weight: 600;">Multiple files supported</small></label>
+          <div class="file-dropzone">
+            <input type="file" id="contract_doc" name="contract_doc" accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx" multiple style="display:none;">
+            <label for="contract_doc" style="cursor: pointer; display: block;">
+              <div class="dropzone-icon"><i class="bi bi-file-earmark-pdf"></i></div>
+              <div class="dropzone-text">Attach Contract Document(s) / Agreement(s)</div>
+              <div class="dropzone-hint">Select one or multiple PDFs, Scanned Contracts, Invoices, or Photos</div>
+            </label>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Notes -->
+      <div class="form-group">
+        <label class="form-label" for="notes">Notes / Special Conditions</label>
+        <textarea id="notes" name="notes" rows="3" class="form-control" placeholder="Any warranty details, guarantor info, or special terms...">{{ lease.notes if lease else '' }}</textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+        <a href="{% if lease %}{{ url_for('main.lease_detail', id=lease.id) }}{% else %}{{ url_for('main.lease_list') }}{% endif %}" class="btn btn-secondary">
+          Cancel
+        </a>
+        <button type="submit" class="btn-primary-action">
+          <i class="bi bi-check-lg"></i> {% if lease %}Update Lease Details{% else %}Save & Start Lease{% endif %}
+        </button>
+      </div>
+
+    </div>
+  </form>
+</div>
+{% endblock %}
