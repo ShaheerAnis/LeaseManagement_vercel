@@ -87,5 +87,36 @@ class LeaseManagementTestCase(unittest.TestCase):
         m = calculate_lease_metrics(lease)
         self.assertEqual(m['remaining_monthly_amount'], 30000.0)
 
+    def test_completed_lease_status_no_due_now(self):
+        """
+        When a lease status is set to 'completed' (even with 0 or partial recorded payments),
+        it must be treated as settled:
+        - remaining_balance = 0.0
+        - due_status = 'settled' (NEVER 'overdue')
+        - is_completed = True
+        - schedule unpaid months must be 'waived_settled' (not 'overdue')
+        """
+        lease = Lease(
+            title="Cash Loan",
+            lease_type="receivable",
+            party_name="Abdul Samad",
+            total_amount=20000.0,
+            tenure_months=3,
+            start_date=date(2026, 7, 1),
+            status="completed"
+        )
+        db.session.add(lease)
+        db.session.commit()
+
+        metrics = calculate_lease_metrics(lease)
+        self.assertTrue(metrics['is_completed'])
+        self.assertEqual(metrics['due_status'], 'settled')
+        self.assertEqual(metrics['remaining_balance'], 0.0)
+        self.assertEqual(metrics['remaining_monthly_amount'], 0.0)
+        self.assertEqual(metrics['remaining_months'], 0)
+        for row in metrics['schedule']:
+            self.assertIn(row['status'], ('paid', 'waived_settled'))
+            self.assertNotEqual(row['status'], 'overdue')
+
 if __name__ == '__main__':
     unittest.main()

@@ -8,46 +8,42 @@ def add_months(source_date, months):
 def calculate_lease_metrics(lease):
     """
     Computes dynamic financial and schedule metrics for a lease.
-    
-    Example:
-    Total Amount: 280,000
-    Tenure: 12 months
-    Month 1 Paid: 100,000
-    -> Remaining Balance: 180,000
-    -> Remaining Months: 11
-    -> Remaining Per Month: 16,363.64
+    Respects lease.status ('completed', 'cancelled', 'active') alongside payment totals.
     """
     total_amount = float(lease.total_amount)
     tenure_months = max(1, int(lease.tenure_months))
     start_date = lease.start_date
     today = date.today()
+    lease_status = getattr(lease, 'status', 'active')
     
     # Payments summary
     payments = lease.payments
     total_paid = sum(p.amount for p in payments)
-    remaining_balance = max(0.0, round(total_amount - total_paid, 2))
     
-    # Progress percentage
-    progress_pct = round((total_paid / total_amount * 100), 1) if total_amount > 0 else 100.0
-    progress_pct = min(100.0, max(0.0, progress_pct))
+    # Status flags
+    is_explicitly_completed = (lease_status == 'completed')
+    is_explicitly_cancelled = (lease_status == 'cancelled')
+    is_paid_in_full = (max(0.0, round(total_amount - total_paid, 2)) <= 0.001)
     
+    is_completed = is_explicitly_completed or is_paid_in_full
+    is_cancelled = is_explicitly_cancelled
+
     # Original monthly installment
     original_monthly_installment = round(total_amount / tenure_months, 2)
-    
-    # Calendar elapsed months since start date
-    months_difference = (today.year - start_date.year) * 12 + (today.month - start_date.month)
-    elapsed_months = max(0, min(tenure_months, months_difference))
-    
-    # Count of payments made
     payments_count = len(payments)
     
-    # Remaining months calculation:
-    if remaining_balance <= 0.001:
-        is_completed = True
+    # Remaining metrics based on status
+    if is_completed or is_cancelled:
+        remaining_balance = 0.0
         effective_remaining_months = 0
         remaining_monthly_amount = 0.0
+        progress_pct = 100.0 if is_completed else (round((total_paid / total_amount * 100), 1) if total_amount > 0 else 0.0)
+        next_due_date = None
+        due_status = 'settled' if is_completed else 'cancelled'
     else:
-        is_completed = False
+        remaining_balance = max(0.0, round(total_amount - total_paid, 2))
+        progress_pct = round((total_paid / total_amount * 100), 1) if total_amount > 0 else 100.0
+        
         if payments_count == 0:
             effective_remaining_months = tenure_months
         else:
@@ -55,14 +51,6 @@ def calculate_lease_metrics(lease):
             
         remaining_monthly_amount = round(remaining_balance / effective_remaining_months, 2)
         
-    # Projected end date
-    projected_end_date = add_months(start_date, tenure_months)
-    
-    # Next upcoming due date
-    if is_completed:
-        next_due_date = None
-        due_status = 'settled'
-    else:
         target_cycle = min(tenure_months - 1, payments_count)
         next_due_date = add_months(start_date, target_cycle)
         if next_due_date < today:
@@ -71,6 +59,13 @@ def calculate_lease_metrics(lease):
             due_status = 'due_soon'
         else:
             due_status = 'on_track'
+
+    progress_pct = min(100.0, max(0.0, progress_pct))
+    
+    # Calendar elapsed months since start date
+    months_difference = (today.year - start_date.year) * 12 + (today.month - start_date.month)
+    elapsed_months = max(0, min(tenure_months, months_difference))
+    projected_end_date = add_months(start_date, tenure_months)
 
     # Build monthly schedule timeline
     schedule = []
@@ -90,8 +85,10 @@ def calculate_lease_metrics(lease):
         else:
             paid_amount = 0.0
             receipt_doc = None
-            if remaining_balance <= 0.001:
+            if is_completed:
                 status = 'waived_settled'
+            elif is_cancelled:
+                status = 'cancelled'
             elif month_due_date < today:
                 status = 'overdue'
             elif month_due_date <= add_months(today, 1):
@@ -102,7 +99,7 @@ def calculate_lease_metrics(lease):
         schedule.append({
             'month_num': i,
             'due_date': month_due_date,
-            'expected_amount': remaining_monthly_amount if not matching_payment else matching_payment.amount,
+            'expected_amount': 0.0 if (is_completed or is_cancelled) else (remaining_monthly_amount if not matching_payment else matching_payment.amount),
             'original_expected': original_monthly_installment,
             'actual_paid': paid_amount,
             'payment': matching_payment,
@@ -121,6 +118,7 @@ def calculate_lease_metrics(lease):
         'elapsed_months': elapsed_months,
         'tenure_months': tenure_months,
         'is_completed': is_completed,
+        'is_cancelled': is_cancelled,
         'next_due_date': next_due_date,
         'due_status': due_status,
         'projected_end_date': projected_end_date,

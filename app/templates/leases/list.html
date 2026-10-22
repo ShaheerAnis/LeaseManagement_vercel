@@ -136,8 +136,10 @@
             <span>{{ l.tenure_months }} Months Total</span>
           </div>
           <div>
-            {% if m.is_completed %}
+            {% if l.status == 'completed' or m.is_completed %}
               <span class="status-pill settled">SETTLED</span>
+            {% elif l.status == 'cancelled' or m.is_cancelled %}
+              <span class="status-pill" style="background: #f1f5f9; color: #64748b; font-weight: 700;">CANCELLED</span>
             {% elif m.due_status == 'overdue' %}
               <span class="status-pill due-now">DUE NOW</span>
             {% else %}

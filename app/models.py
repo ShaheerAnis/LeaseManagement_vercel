@@ -113,11 +113,13 @@ class Lease(db.Model):
 
     @property
     def remaining_balance(self):
+        if self.status in ('completed', 'cancelled'):
+            return 0.0
         return max(0.0, self.total_amount - self.total_paid)
 
     @property
     def is_settled(self):
-        return self.remaining_balance <= 0.001
+        return self.status in ('completed', 'cancelled') or self.remaining_balance <= 0.001
 
 
 class Payment(db.Model):

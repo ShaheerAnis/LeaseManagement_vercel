@@ -33,8 +33,10 @@
             <span class="badge-tag receivable">RECEIVABLE</span>
           {% endif %}
 
-          {% if metrics.is_completed %}
+          {% if lease.status == 'completed' or metrics.is_completed %}
             <span class="status-pill settled">SETTLED</span>
+          {% elif lease.status == 'cancelled' or metrics.is_cancelled %}
+            <span class="status-pill" style="background: #f1f5f9; color: #64748b; font-weight: 700;">CANCELLED</span>
           {% elif metrics.due_status == 'overdue' %}
             <span class="status-pill due-now">DUE NOW</span>
           {% else %}
@@ -143,7 +145,11 @@
       {{ metrics.remaining_balance|currency }}
     </div>
     <div class="stat-meta">
-      <span>{{ metrics.remaining_months }} installments remaining</span>
+      {% if metrics.is_completed %}
+        <span class="text-success" style="font-weight: 700;">Settled & closed</span>
+      {% else %}
+        <span>{{ metrics.remaining_months }} installments remaining</span>
+      {% endif %}
     </div>
   </div>
 
