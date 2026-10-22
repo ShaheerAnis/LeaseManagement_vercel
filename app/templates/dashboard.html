@@ -62,17 +62,17 @@
     </div>
   </div>
 
-  <!-- Total Leases -->
+  <!-- Active Leases -->
   <div class="stat-card">
     <div class="stat-header">
-      <span class="stat-title">Total Managed Leases</span>
+      <span class="stat-title">Active Leases</span>
       <div class="stat-icon primary">
         <i class="bi bi-stack"></i>
       </div>
     </div>
-    <div class="stat-value" style="color: var(--text-main);">{{ total_leases }}</div>
+    <div class="stat-value" style="color: var(--text-main);">{{ active_leases_count }}</div>
     <div class="stat-meta">
-      <span class="text-muted">All active, completed & historical</span>
+      <span class="text-muted">{{ active_payable_count }} Payable &bull; {{ active_receivable_count }} Receivable</span>
     </div>
   </div>
 </div>
@@ -83,7 +83,7 @@
   <div>
     <div class="card">
       <div class="card-header">
-        <h3><i class="bi bi-lightning-charge text-primary"></i> Active & Recent Leases</h3>
+        <h3><i class="bi bi-lightning-charge text-primary"></i> Active Leases</h3>
         <a href="{{ url_for('main.lease_list') }}" class="btn btn-secondary btn-sm">
           View All <i class="bi bi-arrow-right"></i>
         </a>
@@ -164,12 +164,24 @@
           </div>
         {% else %}
           <div class="empty-state">
-            <i class="bi bi-journal-plus empty-state-icon"></i>
-            <h4>No Leases Found</h4>
-            <p>Get started by adding your first mobile phone, cash deal, or equipment lease.</p>
-            <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action" style="margin-top: 1rem;">
-              <i class="bi bi-plus-lg"></i> Create First Lease
-            </a>
+            <i class="bi bi-check2-circle empty-state-icon" style="color: var(--secondary-emerald);"></i>
+            <h4>No Active Leases</h4>
+            {% if total_leases > 0 %}
+              <p>All your leases are currently paid in full, settled, or completed!</p>
+              <div style="display: flex; gap: 0.75rem; justify-content: center; margin-top: 1rem;">
+                <a href="{{ url_for('main.lease_list') }}" class="btn btn-secondary">
+                  <i class="bi bi-archive"></i> View Settled Leases
+                </a>
+                <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action">
+                  <i class="bi bi-plus-lg"></i> Create New Lease
+                </a>
+              </div>
+            {% else %}
+              <p>Get started by adding your first mobile phone, cash deal, or equipment lease.</p>
+              <a href="{{ url_for('main.lease_create') }}" class="btn-primary-action" style="margin-top: 1rem;">
+                <i class="bi bi-plus-lg"></i> Create First Lease
+              </a>
+            {% endif %}
           </div>
         {% endif %}
       </div>

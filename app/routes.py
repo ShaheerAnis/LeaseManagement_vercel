@@ -344,15 +344,18 @@ def dashboard():
     active_payable_count = 0
     active_receivable_count = 0
     
-    leases_with_metrics = []
+    active_leases_with_metrics = []
     for lease in all_leases:
         metrics = calculate_lease_metrics(lease)
-        leases_with_metrics.append({
-            'lease': lease,
-            'metrics': metrics
-        })
         
-        if lease.status == 'active':
+        # Only show active, non-completed, non-settled leases on the dashboard
+        is_active = (lease.status == 'active') and (not metrics['is_completed']) and (not metrics.get('is_cancelled'))
+        
+        if is_active:
+            active_leases_with_metrics.append({
+                'lease': lease,
+                'metrics': metrics
+            })
             if lease.lease_type == 'payable':
                 total_payable_balance += metrics['remaining_balance']
                 total_payable_monthly += metrics['remaining_monthly_amount']
@@ -372,8 +375,9 @@ def dashboard():
     
     return render_template(
         'dashboard.html',
-        leases_with_metrics=leases_with_metrics[:6],
+        leases_with_metrics=active_leases_with_metrics,
         total_leases=len(all_leases),
+        active_leases_count=len(active_leases_with_metrics),
         active_payable_count=active_payable_count,
         active_receivable_count=active_receivable_count,
         total_payable_balance=total_payable_balance,

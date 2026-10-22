@@ -134,5 +134,72 @@ class LeaseRoutesTestCase(unittest.TestCase):
         
         self.assertEqual(len(lease.documents), 7)
 
+    def test_dashboard_only_shows_active_leases(self):
+        # 1. Create an active lease
+        active_lease = Lease(
+            title='Active Dell Monitor',
+            lease_type='receivable',
+            party_name='Ali Khan',
+            total_amount=50000.0,
+            tenure_months=5,
+            start_date=date.today(),
+            category='Electronics',
+            status='active',
+            user_id=self.admin.id
+        )
+        # 2. Create a completed lease (status='completed')
+        completed_lease = Lease(
+            title='Completed Laptop Deal',
+            lease_type='payable',
+            party_name='Tech Store',
+            total_amount=100000.0,
+            tenure_months=5,
+            start_date=date.today(),
+            status='completed',
+            user_id=self.admin.id
+        )
+        # 3. Create a fully-paid lease that is settled
+        settled_lease = Lease(
+            title='Settled Phone Deal',
+            lease_type='payable',
+            party_name='Mobile Shop',
+            total_amount=30000.0,
+            tenure_months=3,
+            start_date=date.today(),
+            status='active',
+            user_id=self.admin.id
+        )
+        db.session.add_all([active_lease, completed_lease, settled_lease])
+        db.session.commit()
+
+        # Add full payment for settled_lease
+        full_payment = Payment(
+            lease_id=settled_lease.id,
+            amount=30000.0,
+            payment_date=date.today(),
+            payment_type='installment',
+            payment_method='Cash'
+        )
+        db.session.add(full_payment)
+        db.session.commit()
+
+        # Check dashboard
+        res_dash = self.client.get('/')
+        self.assertEqual(res_dash.status_code, 200)
+        # Active lease should appear in card grid
+        self.assertIn(b'Active Dell Monitor', res_dash.data)
+        self.assertIn(b'<div class="card-item-title" style="font-size: 1.2rem;">Active Dell Monitor</div>', res_dash.data)
+        # Completed and settled leases must NOT appear in the lease card grid
+        self.assertNotIn(b'<div class="card-item-title" style="font-size: 1.2rem;">Completed Laptop Deal</div>', res_dash.data)
+        self.assertNotIn(b'<div class="card-item-title" style="font-size: 1.2rem;">Settled Phone Deal</div>', res_dash.data)
+
+        # Check /leases list: all leases must still appear there
+        res_list = self.client.get('/leases')
+        self.assertEqual(res_list.status_code, 200)
+        self.assertIn(b'Active Dell Monitor', res_list.data)
+        self.assertIn(b'Completed Laptop Deal', res_list.data)
+        self.assertIn(b'Settled Phone Deal', res_list.data)
+
 if __name__ == '__main__':
     unittest.main()
+
